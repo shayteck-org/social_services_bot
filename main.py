@@ -1,14 +1,8 @@
 from pyrogram import Client, filters 
 from pyrogram.types import Message, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton
-from datetime import date, datetime, timedelta
-import asyncio
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pyrogram.errors import FloodWait, ChatAdminRequired, UserNotParticipant, RPCError
 import sqlite3
 from unidecode import unidecode
-import matplotlib.pyplot as plt
-from bidi.algorithm import get_display
-import arabic_reshaper
 import user_keyboard, user_message, admin_keyboard, admin_message
 import openpyxl
 from io import BytesIO
@@ -276,43 +270,75 @@ def register(id):
     cur.close()
 
 
+
 def saver_json():
     global conn, item_telegram, item_instagram, item_special, item_mostsell, TelegramPlans, InstagramPlans, SpecialPlans, MostSellPlans
+
+    def custom_serializer(obj):
+        if isinstance(obj, InlineKeyboardButton):
+            return {
+                'text': obj.text,
+                'callback_data': obj.callback_data,
+            }
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
     InputJSON = json.dumps({
-    "item_telegram": item_telegram,
-    "item_instagram": item_instagram,
-    "item_special": item_special,
-    "item_mostsell": item_mostsell,
-    "telegram_plans": TelegramPlans,
-    "instagram_plans": InstagramPlans,
-    "special_plans": SpecialPlans,
-    "most_sell": MostSellPlans
-    })
+        "item_telegram": item_telegram,
+        "item_instagram": item_instagram,
+        "item_special": item_special,
+        "item_mostsell": item_mostsell,
+        "telegram_plans": TelegramPlans,
+        "instagram_plans": InstagramPlans,
+        "special_plans": SpecialPlans,
+        "most_sell": MostSellPlans
+    }, default=custom_serializer)
+
     cur = conn.cursor()
-    cur.execute('''INSERT INTO stuff (json) VALUES (?);''', (InputJSON,))
+    cur.execute('''UPDATE stuff SET json = ? WHERE id = 1;''', (InputJSON,))
     conn.commit()
     cur.close()
 
 
+
+
 def loader_json():
     global conn, item_telegram, item_instagram, item_special, item_mostsell, TelegramPlans, InstagramPlans, SpecialPlans, MostSellPlans
+
+    def custom_deserializer(dct):
+        if 'text' in dct and ('callback_data' in dct or 'url' in dct):
+            return InlineKeyboardButton(
+                text=dct.get('text'),
+                callback_data=dct.get('callback_data')
+            )
+        return dct
+
     cur = conn.cursor()
     cur.execute('SELECT json FROM stuff WHERE id = 1;')
     try:
-        data = cur.fetchall()[0]
+        data = cur.fetchone()
+        if data:
+            json_data = data[0]
+            parsed_data = json.loads(json_data, object_hook=custom_deserializer)
+            item_telegram = parsed_data["item_telegram"]
+            item_instagram = parsed_data["item_instagram"]
+            item_special = parsed_data["item_special"]
+            item_mostsell = parsed_data["item_mostsell"]
+            TelegramPlans = parsed_data["telegram_plans"]
+            InstagramPlans = parsed_data["instagram_plans"]
+            SpecialPlans = parsed_data["special_plans"]
+            MostSellPlans = parsed_data["most_sell"]
+        else:
+            return None
     except IndexError:
         return None
-    
-    data = json.loads(data)
+    except Exception as e:
+        print(e)
+    finally:
+        cur.close()
 
-    item_telegram = data[item_telegram]
-    item_instagram = data[item_instagram]
-    item_special = data[item_special]
-    item_mostsell = data[item_mostsell]
-    TelegramPlans = data[TelegramPlans]
-    InstagramPlans = data[InstagramPlans]
-    SpecialPlans = data[SpecialPlans]
-    MostSellPlans = data[MostSellPlans]
+
+
+
 
 
 
@@ -329,14 +355,6 @@ lst_mostsell = []
 lst_users = []
 lst_admins = []
 lst_ban = []
-
-
-
-
-
-
-
-
 @bot.on_message(filters.private)
 async def message_handler(client: Client, message: Message):
     global lst_admins, lst_users, lst_ban, lst_tel, lst_ins, lst_special, lst_mostsell, item_telegram, item_instagram, item_special, item_mostsell, lst_append
@@ -595,14 +613,20 @@ async def message_handler(client: Client, message: Message):
             SetStep(message.from_user.id, "select_topic_mostsell")
 
         elif GetStep(message.from_user.id) == "item_name_telegram":
-            await message.reply("قیمت ایتم را وارد کنید")
+            await message.reply("قیمت ایتم را به تومن وارد کنید")
             lst_tel.insert(0, message.text)
             SetStep(message.from_user.id, "item_prize_telegram")
 
         elif GetStep(message.from_user.id) == "item_prize_telegram":
-            await message.reply("توضیحات ایتم را وارد کنید")
-            lst_tel.insert(1, unidecode(message.text))
-            SetStep(message.from_user.id, "item_explain_telegram")
+            try:
+                int(message.text)/1
+                await message.reply("توضیحات ایتم را وارد کنید")
+                lst_tel.insert(1, unidecode(message.text))
+                SetStep(message.from_user.id, "item_explain_telegram")
+            except Exception:
+                await message.reply("قیمت وارد شده صحیح نمی باشد\n\nلطفا فقط از اعداد استفاده کنید")
+                await message.reply("قیمت ایتم را به تومن وارد کنید")
+                SetStep(message.from_user.id, "item_prize_telegram")
 
         elif GetStep(message.from_user.id) == "item_explain_telegram":
             await message.reply("ایتم شما با موفقیت ثبت شد", reply_markup=admin_keyboard.home)
@@ -611,14 +635,20 @@ async def message_handler(client: Client, message: Message):
             SetStep(message.from_user.id, "home_admin")
 
         elif GetStep(message.from_user.id) == "item_name_instagram":
-            await message.reply("قیمت ایتم را وارد کنید")
+            await message.reply("قیمت ایتم را به تومن وارد کنید")
             lst_ins.insert(0, message.text)
             SetStep(message.from_user.id, "item_prize_instagram")
 
         elif GetStep(message.from_user.id) == "item_prize_instagram":
-            await message.reply("توضیحات ایتم را وارد کنید")
-            lst_ins.insert(1, unidecode(message.text))
-            SetStep(message.from_user.id, "item_explain_instagram")
+            try:
+                int(message.text)/1
+                await message.reply("توضیحات ایتم را وارد کنید")
+                lst_ins.insert(1, unidecode(message.text))
+                SetStep(message.from_user.id, "item_explain_instagram")
+            except Exception:
+                await message.reply("قیمت وارد شده صحیح نمی باشد\n\nلطفا فقط از اعداد استفاده کنید")
+                await message.reply("قیمت ایتم را به تومن وارد کنید")
+                SetStep(message.from_user.id, "item_prize_instagram")
 
         elif GetStep(message.from_user.id) == "item_explain_instagram":
             await message.reply("ایتم شما با موفقیت ثبت شد", reply_markup=admin_keyboard.home)            
@@ -627,14 +657,20 @@ async def message_handler(client: Client, message: Message):
             SetStep(message.from_user.id, "home_admin")
 
         elif GetStep(message.from_user.id) == "item_name_special":
-            await message.reply("قیمت ایتم را وارد کنید")
+            await message.reply("قیمت ایتم را به تومن وارد کنید")
             lst_special.insert(0, message.text)
-            SetStep(message.from_user.id, "item_prize_specail")
+            SetStep(message.from_user.id, "item_prize_special")
 
         elif GetStep(message.from_user.id) == "item_prize_special":
-            await message.reply("توضیحات ایتم را وارد کنید")
-            lst_special.insert(1, unidecode(message.text))
-            SetStep(message.from_user.id, "item_explain_special")
+            try:
+                int(message.text)/1
+                await message.reply("توضیحات ایتم را وارد کنید")
+                lst_special.insert(1, unidecode(message.text))
+                SetStep(message.from_user.id, "item_explain_special")
+            except Exception:
+                await message.reply("قیمت وارد شده صحیح نمی باشد\n\nلطفا فقط از اعداد استفاده کنید")
+                await message.reply("قیمت ایتم را به تومن وارد کنید")
+                SetStep(message.from_user.id, "item_prize_special")
 
         elif GetStep(message.from_user.id) == "item_explain_special":
             await message.reply("ایتم شما با موفقیت ثبت شد", reply_markup=admin_keyboard.home)            
@@ -643,14 +679,20 @@ async def message_handler(client: Client, message: Message):
             SetStep(message.from_user.id, "home_admin")
 
         elif GetStep(message.from_user.id) == "item_name_mostsell":
-            await message.reply("قیمت ایتم را وارد کنید")
+            await message.reply("قیمت ایتم را به تومن وارد کنید")
             lst_mostsell.insert(0, message.text)
             SetStep(message.from_user.id, "item_prize_mostsell")
 
         elif GetStep(message.from_user.id) == "item_prize_mostsell":
-            await message.reply("توضیحات ایتم را وارد کنید")
-            lst_mostsell.insert(1,unidecode(message.text))
-            SetStep(message.from_user.id, "item_explain_mostsell")
+            try:
+                int(message.text)/1
+                await message.reply("توضیحات ایتم را وارد کنید")
+                lst_mostsell.insert(1,unidecode(message.text))
+                SetStep(message.from_user.id, "item_explain_mostsell")
+            except Exception:
+                await message.reply("قیمت وارد شده صحیح نمی باشد\n\nلطفا فقط از اعداد استفاده کنید")
+                await message.reply("قیمت ایتم را به تومن وارد کنید")
+                SetStep(message.from_user.id, "item_prize_mostsell")
 
         elif GetStep(message.from_user.id) == "item_explain_mostsell":
             await message.reply("ایتم شما با موفقیت ثبت شد", reply_markup=admin_keyboard.home)           
@@ -739,6 +781,9 @@ async def message_handler(client: Client, message: Message):
     except UserNotParticipant:
         await message.reply(user_message.join_channel, reply_markup=user_keyboard.join_channel)
 
+    except ChatAdminRequired:
+        await message.reply("بات در حال حاضر به مشکل برخورد کرده است\n\nاز صبوری شما متشکریم")
+
     except Exception:
         pass
 
@@ -757,7 +802,7 @@ async def callback_query(bot, CallbackQuery):
         SetStep(CallbackQuery.from_user.id, "send_prob")
 
 
-    elif CallbackQuery.data == "BackToMainMenu":
+    elif CallbackQuery.data == "BackToBuyMenu":
         if str(CallbackQuery.from_user.id) in lst_admins:
                 await CallbackQuery.message.reply(admin_message.welcome, reply_markup=admin_keyboard.home)
                 SetStep(CallbackQuery.from_user.id, "home_admin")
@@ -979,14 +1024,6 @@ async def callback_query(bot, CallbackQuery):
         await bot.send_message(splitted[1], "شما با موفقیت احراز شدید")
         await CallbackQuery.edit_message_reply_markup(admin_keyboard.home)
         SetStep(CallbackQuery.from_user.id, "home_admin")
-
-    elif CallbackQuery.data == "BackToBuyMenu":
-        if CallbackQuery.from_user.id in lst_admins:
-            await CallbackQuery.edit_message_reply_markup(admin_keyboard.home)
-            SetStep(CallbackQuery.from_user.id, "home_admin")
-        elif CallbackQuery.from_user.id in lst_users:
-            await CallbackQuery.edit_message_reply_markup(user_keyboard.home_keyboard)
-            SetStep(CallbackQuery.from_user.id, "home_user")
 
     elif CallbackQuery.data[:6] == "PaySub" and GetStep(CallbackQuery.from_user.id) == "telegram_remove_item":
         Splitted = CallbackQuery.data.split("!")
